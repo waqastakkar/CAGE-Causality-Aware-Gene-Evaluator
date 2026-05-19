@@ -1,0 +1,1656 @@
+Metadata-Version: 2.4
+Name: cage
+Version: 0.1.0
+Summary: Causality-Aware Gene Evaluator
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy<2.0,>=1.24
+Requires-Dist: matplotlib>=3.7
+Provides-Extra: enrichment
+Requires-Dist: gseapy>=1.0; extra == "enrichment"
+Provides-Extra: survival
+Requires-Dist: lifelines>=0.27; extra == "survival"
+Provides-Extra: ml
+Requires-Dist: scikit-learn>=1.3; extra == "ml"
+Requires-Dist: xgboost>=2.0; extra == "ml"
+Requires-Dist: lightgbm>=4.0; extra == "ml"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4; extra == "dev"
+Requires-Dist: pytest-cov>=4.1; extra == "dev"
+Provides-Extra: all
+Requires-Dist: gseapy>=1.0; extra == "all"
+Requires-Dist: lifelines>=0.27; extra == "all"
+Requires-Dist: scikit-learn>=1.3; extra == "all"
+Requires-Dist: xgboost>=2.0; extra == "all"
+Requires-Dist: lightgbm>=4.0; extra == "all"
+
+# CAGE: Causality-Aware Gene Evaluator
+
+CAGE prioritizes candidate genes integrating causality, environment-awareness,
+multi-layer validation, and external cohort replication.
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#requirements)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![NumPy-only](https://img.shields.io/badge/backend-pure%20NumPy-orange.svg)](#design-philosophy)
+
+---
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Design Philosophy](#design-philosophy)
+3. [Requirements](#requirements)
+4. [Installation](#installation)
+5. [Input Data](#input-data)
+6. [Pipeline Architecture](#pipeline-architecture)
+7. [Quick Start (Full Pipeline)](#quick-start-full-pipeline)
+8. [Step-by-Step Execution](#step-by-step-execution)
+   - [Step 2 — Cohort Curation and Preprocessing (Phase I)](#step-2--cohort-curation-and-preprocessing-phase-i)
+   - [Step 3 — Grouped Baseline Models](#step-3--grouped-baseline-models)
+   - [Step 4 — Sparse Invariant Deep Model (Phase II)](#step-4--sparse-invariant-deep-model-phase-ii)
+   - [Step 5 — CDPS Ranking (Phase III)](#step-5--cdps-ranking-phase-iii)
+   - [Step 6 — Biological Validation (Phase IV)](#step-6--biological-validation-phase-iv)
+   - [Step 6b — Top-25 Final Evidence Prioritization (Post-Analysis)](#step-6b--top-25-final-evidence-prioritization-post-analysis)
+   - [Step 6b (Survival) — Survival Analysis & External Cohort Validation](#step-6b-survival--survival-analysis--external-cohort-validation)
+   - [Step 7 — Manuscript Packaging (Phase V)](#step-7--manuscript-packaging-phase-v)
+   - [Step 8 — External Validation and Release](#step-8--external-validation-and-release)
+9. [Global CLI Options](#global-cli-options)
+10. [Figure and Visualization Standards](#figure-and-visualization-standards)
+11. [Output Directory Structure](#output-directory-structure)
+12. [Reproducibility](#reproducibility)
+13. [Claim Boundaries](#claim-boundaries)
+14. [Citation](#citation)
+15. [License](#license)
+
+---
+
+## Overview
+
+CAGE is a fully reproducible, end-to-end computational pipeline for
+prioritizing candidate driver genes in **TCGA esophageal carcinoma (ESCA)**.
+The pipeline integrates cohort curation, patient-grouped cross-validation,
+sparse invariant deep modelling with confounder adversarial training,
+multi-component gene ranking (Causality-Aware Priority Score, CDPS), and
+orthogonal biological validation — all implemented in **pure NumPy** with no
+external machine-learning framework dependencies.
+
+### Key Contributions
+
+| Component | Description |
+|-----------|-------------|
+| **Sparse Feature Gate** | Learnable per-gene gate with L1 or hard-concrete regularisation drives automatic feature selection. |
+| **Confounder Adversary** | Gradient-reversal layer removes histology/sex/smoking signals from the latent space. |
+| **Environment Invariance** | Latent-mean penalty ensures disease representations generalise across patient strata. |
+| **CDPS** | Five-component score integrating attribution, gate weight, stability, invariance, and perturbation. |
+| **Validation Pipeline** | Differential expression, pathway enrichment, PPI network support, clinical association, and subgroup robustness. |
+
+---
+
+## Design Philosophy
+
+CAGE is intentionally built on a **pure NumPy** numerical backend.
+All models — logistic ridge, elastic-net, random forest, decision tree,
+and the sparse invariant autoencoder-classifier — are implemented from
+first principles with hand-derived analytical gradients. There are no
+dependencies on scikit-learn, PyTorch, TensorFlow, or statsmodels.
+
+This design ensures:
+
+- **Bit-exact reproducibility** across platforms and Python versions.
+- **Minimal environment footprint** (NumPy + matplotlib only).
+- **Full auditability** of every gradient, loss, and optimisation step.
+
+---
+
+## Requirements
+
+| Package    | Version    | Role |
+|------------|------------|------|
+| Python     | ≥ 3.10     | Runtime |
+| NumPy      | ≥ 1.24     | Numerical backend (all models, metrics, statistics) |
+| Matplotlib | ≥ 3.7      | Publication-grade figure generation |
+
+**Optional** (uncomment in `environment.yml` to enable):
+
+| Package   | Version | Role |
+|-----------|---------|------|
+| gseapy    | ≥ 1.0   | GSEA-based pathway enrichment (Step 6) |
+| lifelines | ≥ 0.27  | Cox/log-rank survival analysis (Step 6) |
+
+---
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/<your-org>/CAGE.git
+cd CAGE
+
+# Create and activate the Conda environment
+conda env create -f environment.yml
+conda activate cage
+
+# Install in editable mode
+pip install -e .
+
+# Verify the installation
+python -c "import cage; print(cage.__version__)"
+```
+
+---
+
+## Input Data
+
+The pipeline expects three TCGA ESCA files in the input directory
+(configurable via `--input-dir`):
+
+| File | Description | Dimensions |
+|------|-------------|------------|
+| `TCGA_ESCA_STAR_Counts.csv` | Raw STAR gene-level counts | genes × 197 samples |
+| `ESCA_vst_normalized_matrix.csv` | DESeq2 variance-stabilised expression | genes × 197 samples |
+| `TCGA_ESCA_Metadata.csv` | Clinical, demographic, and molecular metadata | 197 samples × 137 covariates |
+
+**Data access**: Raw data are available from the
+[GDC Data Portal](https://portal.gdc.cancer.gov/) under project TCGA-ESCA.
+
+---
+
+## Pipeline Architecture
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│                              CAGE Pipeline                                   │
+├────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                    │
+│  Step 2 ─► Step 3 ─► Step 4 ─► Step 5 ─► Step 6 ─► Step 6b ─► Step 7 ─► Step 8  │
+│  Cohort    Baselines  Deep      CDPS     Biological  Top-25    Manuscript External │
+│  Curation             Model    Ranking   Validation  Priority  Packaging  Release  │
+│  (Phase I)           (Phase II)(Phase III)(Phase IV) (post-6)  (Phase V) (Phase V)│
+│                                                                                    │
+└────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Model Architecture
+
+```
+Input (5000 genes)
+       │
+  ┌────▼────┐
+  │ Feature │  L1 / hard-concrete
+  │  Gate   │  sparsity regularisation
+  └────┬────┘
+       │ (gated expression)
+  ┌────▼────┐
+  │ Encoder │  256 → 96 → 48 (latent)
+  │ (ReLU + │  with dropout
+  │ Dropout)│
+  └────┬────┘
+       │
+  ┌────┼────────────┬────────────────┐
+  │    │            │                │
+  ▼    ▼            ▼                ▼
+Classifier  Adversary   Invariance   Decoder
+(tumor/     (confounder (latent-mean  (optional
+ normal)     removal     penalty)    reconstruction)
+             via GRL)
+```
+
+---
+
+## Quick Start (Full Pipeline)
+
+Run the entire pipeline from raw TCGA files to a release-ready manuscript
+package with the following commands:
+
+```bash
+# Step 2: Cohort curation (fast / exploratory — top-5000 variable genes)
+python -m cage.step2_build_cohort \
+  --input-dir . \
+  --output-dir outputs/step2_cohort \
+  --n-top-variable-genes 5000 \
+  --n-outer-folds 5 --n-inner-folds 3 \
+  --run-cohort-flow-figure
+
+# Step 2: all_genes mode (all biologically filtered genes, one flag)
+python -m cage.step2_build_cohort \
+  --input-dir . \
+  --output-dir outputs/step2_cohort \
+  --rigor-profile all_genes \
+  --n-outer-folds 5 --n-inner-folds 3 \
+  --run-cohort-flow-figure
+
+# Step 3: Baseline classifiers
+python -m cage.step3_grouped_baselines \
+  --input-dir outputs/step2_cohort \
+  --output-dir outputs/step3_baselines \
+  --models logistic elasticnet rf \
+  --run-calibration --run-subgroup-sensitivity
+
+# Step 4: Sparse invariant deep model
+python -m cage.step4_sparse_invariant_model \
+  --input-dir outputs/step2_cohort \
+  --output-dir outputs/step4_deep_model \
+  --overwrite \
+  --latent-dim 32 --hidden-dims 128 64 \
+  --n-epochs 100 --batch-size 64 --lr 8e-4 --weight-decay 5e-4 \
+  --dropout 0.25 --patience 20 \
+  --sparsity-lambda 0.01 --adv-lambda 0.05 --invariance-lambda 0.001 \
+  --recon-lambda 0.15 --adv-ramp-epochs 15 \
+  --run-calibration --run-subgroup-sensitivity
+
+# Step 5: CDPS ranking
+python -m cage.step5_cdps_ranking \
+  --step2-dir outputs/step2_cohort \
+  --step4-dir outputs/step4_deep_model \
+  --output-dir outputs/step5_cdps \
+  --attribution-method integrated-gradients \
+  --top-ks 25 --run-perturbation
+
+# Step 6: Biological validation
+python -m cage.step6_biological_validation \
+  --step2-dir outputs/step2_cohort \
+  --step5-dir outputs/step5_cdps \
+  --output-dir outputs/step6_validation \
+  --run-enrichment --run-network --run-survival --run-subgroup-sensitivity \
+  --gmt-hallmark  data/h.all.v2026.1.Hs.symbols.gmt \
+  --gmt-reactome  data/c2.cp.reactome.v2026.1.Hs.symbols.gmt \
+  --gmt-kegg-go   data/c2.cp.kegg_medicus.v2026.1.Hs.symbols.gmt \
+  --gmt-immune    data/c7.immunesigdb.v2026.1.Hs.symbols.gmt
+
+# Step 6b: Top-25 final evidence prioritization (optional post-analysis)
+python -m cage.step6b_top25_final_prioritization \
+  --step5-dir outputs/step5_cdps \
+  --step6-dir outputs/step6_validation \
+  --external-dir outputs/step8_geo_validation \
+  --agilent-dir outputs/step8_agilent_validation \
+  --output-dir outputs/step6b_top25_prioritization \
+  --top-k 25 --seed 2026 \
+  --figure-format svg --extra-figure-format pdf \
+  --w-cdps 0.30 --w-external 0.20 --w-de 0.15 \
+  --w-clinical-survival 0.15 --w-pathway-network 0.10 --w-subgroup 0.10 \
+  --tier1-threshold 0.75 --tier2-threshold 0.50
+
+# Step 6b (Survival): Kaplan-Meier survival + external cohort validation
+python -m cage.step6b_survival_external_validation \
+  --expression-matrix outputs/step2_cohort/normalized_primary_matrix.csv \
+  --metadata          outputs/step2_cohort/master_samples_primary.csv \
+  --top25-ranking     outputs/step6b_top25_prioritization/tables/top25_final_priority_ranking.csv \
+  --agilent-replication outputs/step8_agilent_validation/combined_de_replication.csv \
+  --geo-replication   outputs/step8_geo_validation/combined_de_replication.csv \
+  --geo-prepared-dir  outputs/step8_geo_prepared \
+  --output-dir        outputs/step6b_survival_external
+
+# Step 7: Manuscript packaging
+python -m cage.step7_manuscript_packaging \
+  --step2-dir outputs/step2_cohort \
+  --step3-dir outputs/step3_baselines \
+  --step4-dir outputs/step4_deep_model \
+  --step5-dir outputs/step5_cdps \
+  --step6-dir outputs/step6_validation \
+  --output-dir outputs/final_package \
+  --export-markdown --copy-final-figures --copy-key-tables --build-supplement
+
+# Step 8a: Download GEO datasets (run from miniconda env)
+python -m cage.step8_external_validation_and_release prepare-geo \
+  --gse GSE23400 GSE38129 GSE161533 GSE20347 GSE53624 GSE53625 \
+  --output-dir outputs/step8_geo_prepared
+
+# Step 8b: Affymetrix multi-cohort validation
+python -m cage.step8_external_validation_and_release validate-geo \
+  --geo-dir outputs/step8_geo_prepared \
+  --step5-dir outputs/step5_cdps --step6-dir outputs/step6_validation \
+  --step4-dir outputs/step4_deep_model --run-model \
+  --output-dir outputs/step8_geo_validation
+
+# Step 8c: Agilent cohort validation
+python -m cage.step8_external_validation_and_release validate-agilent \
+  --geo-dir outputs/step8_geo_prepared \
+  --step5-dir outputs/step5_cdps --step6-dir outputs/step6_validation \
+  --step4-dir outputs/step4_deep_model --run-model \
+  --output-dir outputs/step8_agilent_validation
+
+# Step 8d: Release bundle
+python -m cage.step8_external_validation_and_release release \
+  --step5-dir outputs/step5_cdps \
+  --step6-dir outputs/step6_validation \
+  --step7-dir outputs/final_package \
+  --output-dir outputs/step8_release \
+  --release-bundle-dir outputs/release_bundle \
+  --copy-final-figures --copy-key-tables --build-supplement
+```
+
+---
+
+## Step-by-Step Execution
+
+Every pipeline module exposes a comprehensive `--help` screen with branded
+CAGE output, input/output documentation, and usage examples:
+
+```bash
+python -m cage.<module_name> --help
+```
+
+---
+
+### Step 2 — Cohort Curation and Preprocessing (Phase I)
+
+**Purpose**: Assemble a leakage-free TCGA ESCA cohort, harmonise barcodes,
+filter primary tumour/solid-normal samples, construct confounder and
+environment strata, process the expression matrix, and generate
+patient-grouped nested cross-validation folds.
+
+**Module**: `cage.step2_build_cohort`
+
+#### Run Command
+
+Three usage modes are supported. Use the one matching your compute budget and manuscript target:
+
+```bash
+# FAST / exploratory (top-5000 variable genes; ~1 h)
+python -m cage.step2_build_cohort \
+  --input-dir . \
+  --output-dir outputs/step2_cohort \
+  --n-top-variable-genes 5000 \
+  --n-outer-folds 5 --n-inner-folds 3 \
+  --run-cohort-flow-figure --seed 2026
+
+# BALANCED (top-20000 variable genes; ~4–8 h)
+python -m cage.step2_build_cohort \
+  --input-dir . \
+  --output-dir outputs/step2_cohort \
+  --n-top-variable-genes 20000 \
+  --n-outer-folds 5 --n-inner-folds 3 \
+  --run-cohort-flow-figure --seed 2026
+
+# all_genes mode (all ~39k biologically filtered genes; one flag)
+python -m cage.step2_build_cohort \
+  --input-dir . \
+  --output-dir outputs/step2_cohort \
+  --rigor-profile all_genes \
+  --n-outer-folds 5 --n-inner-folds 3 \
+  --run-cohort-flow-figure --seed 2026
+```
+
+`--rigor-profile all_genes` is equivalent to passing `--use-all-filtered-genes
+--run-cohort-flow-figure --bootstrap-ci-n 1000 --run-calibration
+--run-subgroup-sensitivity --run-perturbation` simultaneously. Individual flags
+still override the preset when explicitly supplied.
+
+> **Gene sensitivity analysis (optional post-hoc)**
+> ```bash
+> python -m cage.step2_gene_sensitivity \
+>   --input-dir . --output-dir outputs/step2_sensitivity \
+>   --gene-sensitivity-grid 5000 10000 20000 all
+> ```
+> Produces `gene_cap_sensitivity_metrics.csv` and a Jaccard comparison figure.
+> Confirm Jaccard ≥ 0.80 between adjacent caps before claiming top-gene stability.
+
+#### Phase-Specific Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--counts-csv` | auto | Override path to `TCGA_ESCA_STAR_Counts.csv` |
+| `--vst-csv` | auto | Override path to `ESCA_vst_normalized_matrix.csv` |
+| `--metadata-csv` | auto | Override path to `TCGA_ESCA_Metadata.csv` |
+| `--min-count` | 10 | Minimum raw count threshold for DE-validation gene filter |
+| `--min-samples-per-gene` | 10 | Minimum samples with count ≥ `--min-count` |
+| `--near-zero-variance-threshold` | 0.01 | Minimum per-gene variance on the VST matrix |
+| `--n-top-variable-genes` | 5000 | Speed-oriented cap on highest-variance genes; NOT a biological requirement |
+| `--use-all-filtered-genes` | off | Retain all genes passing dedup + variance filter (no top-N cap) |
+| `--gene-sensitivity-grid` | off | Sweep multiple caps (e.g. `5000 10000 20000 all`) |
+| `--rigor-profile` | standard | `all_genes` enables all rigorous options in one flag |
+| `--n-outer-folds` | 5 | Outer patient-grouped CV folds |
+| `--n-inner-folds` | 3 | Inner CV folds for hyperparameter tuning |
+| `--environments` | smoking sex histology country stage | Environment strata for invariance |
+| `--confounder-columns` | gender, smoking, histology, country, stage | Metadata columns to integer-encode |
+| `--run-cohort-flow-figure` | off | Render cohort-flow diagram |
+| `--no-zscore` | on | Skip global z-scoring (default; per-fold z-score in Steps 3–4) |
+
+#### Processing Steps
+
+1. **Load** raw counts, VST-normalised expression, and clinical metadata.
+2. **Harmonise** full sample barcodes and extract 12-character patient IDs.
+3. **Filter** for primary tumour (01) and solid-normal (11) samples only.
+4. **Transpose** expression to samples × genes; remove duplicate genes.
+5. **Variance filter** near-zero variance genes (removes ~34% of genes).
+6. **Select genes**: all filtered genes (`--use-all-filtered-genes`) or top-N by variance.
+7. **Encode** categorical confounders (sex, smoking, histology, country, stage).
+8. **Assign** environment strata for downstream invariance penalties.
+9. **Generate** patient-grouped nested CV fold assignments (no leakage).
+
+#### Outputs
+
+| File | Description |
+|------|-------------|
+| `master_samples_primary.csv` | Curated patient/sample table with all covariates |
+| `normalized_primary_matrix.csv` | VST samples × genes matrix (deep-model input) |
+| `counts_primary_matrix.csv` | Filtered raw counts (DE validation input) |
+| `grouped_outer_folds.csv` | Patient-safe nested CV fold assignments |
+| `confounder_encodings.json` | Integer encoding maps for categorical confounders |
+| `phase1_summary.json` | Preprocessing statistics and configuration |
+| `preprocessing_gene_filtering_report.csv` | Gene counts at each filtering stage |
+| `methods_gene_filtering.txt` | Manuscript-ready Methods paragraph |
+| `model_size_report.json` | Estimated model parameters, memory, and training time |
+| `gene_cap_sensitivity_metrics.csv` | Jaccard overlap across gene caps (if `--gene-sensitivity-grid`) |
+| `figures/` | Cohort flow, sample-type bars, environment strata, gene-filtering funnel |
+
+---
+
+### Step 3 — Grouped Baseline Models
+
+**Purpose**: Train patient-grouped baseline classifiers as reference
+benchmarks that the sparse invariant model (Step 4) must exceed.
+Produces out-of-fold predictions and per-fold/overall metrics with
+bootstrap confidence intervals.
+
+**Module**: `cage.step3_grouped_baselines`
+
+#### Run Command
+
+```bash
+python -m cage.step3_grouped_baselines \
+  --input-dir outputs/step2_cohort \
+  --output-dir outputs/step3_baselines \
+  --models logistic elasticnet rf \
+  --run-calibration \
+  --run-subgroup-sensitivity \
+  --bootstrap-ci-n 500 \
+  --seed 2026
+```
+
+#### Phase-Specific Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--step2-dir` | `--input-dir` | Override location of Step 2 outputs |
+| `--models` | logistic elasticnet rf | Baseline classifiers to fit (`logistic`, `elasticnet`, `rf`, `decision_tree`) |
+| `--decision-threshold` | 0.5 | Probability threshold for binary predictions |
+| `--top-n-importances` | 50 | Top-N genes per model in feature-importance table |
+| `--bootstrap-ci-n` | 500 | Bootstrap resamples for confidence intervals |
+| `--calibration-bins` | 10 | Reliability-diagram bin count |
+| `--calibration-strategy` | uniform | Calibration binning strategy (`uniform` or `quantile`) |
+| `--environments` | smoking sex histology country stage | Subgroup strata for sensitivity |
+| `--run-calibration` | off | Compute and plot probability calibration |
+| `--run-subgroup-sensitivity` | off | Report per-environment subgroup metrics |
+
+#### Baseline Models (Pure NumPy)
+
+| Model | Algorithm |
+|-------|-----------|
+| **Logistic Ridge** | Adam gradient descent with L2 penalty |
+| **Elastic-Net Logistic** | FISTA proximal gradient with L1 + L2 |
+| **Random Forest** | Bagged weighted-Gini decision trees |
+| **Decision Tree** | Single weighted-Gini tree (optional) |
+
+#### Outputs
+
+| File | Description |
+|------|-------------|
+| `baseline_oof_predictions.csv` | Per-sample OOF probabilities for each model |
+| `baseline_train_predictions.csv` | Train-fold probabilities for diagnostic train ROC curves |
+| `baseline_per_fold_metrics.csv` | Per-model, per-fold AUROC/AUPRC/BAC/Brier |
+| `baseline_summary_metrics.csv` | Overall-OOF and mean-of-folds with 95% CIs |
+| `baseline_feature_importance.csv` | Top genes per model (rank, importance score) |
+| `baseline_subgroup_metrics.csv` | Per-environment metrics (if enabled) |
+| `baseline_calibration.csv` | Reliability diagram data (if enabled) |
+| `phase3_summary.json` | Configuration, metrics, and figure manifest |
+| `figures/` | ROC curves, PR curves, calibration plot, model-comparison bar chart |
+
+---
+
+### Step 4 — Sparse Invariant Deep Model (Phase II)
+
+**Purpose**: Train the Sparse Invariant Adversarial Autoencoder-Classifier —
+the core model combining a learnable per-gene gate, a disease-classification
+head, an adversarial confounder module, an optional reconstruction decoder,
+and an invariance regulariser over environment strata.
+
+**Module**: `cage.step4_sparse_invariant_model`
+
+#### Recommended Regularized Generalization Run Command
+
+```bash
+python -m cage.step4_sparse_invariant_model \
+  --input-dir outputs/step2_cohort \
+  --output-dir outputs/step4_deep_model \
+  --overwrite \
+  --latent-dim 32 \
+  --hidden-dims 128 64 \
+  --sparsity-type l1 \
+  --dropout 0.25 \
+  --use-decoder \
+  --n-epochs 100 \
+  --batch-size 64 \
+  --lr 8e-4 \
+  --weight-decay 5e-4 \
+  --patience 20 \
+  --sparsity-lambda 0.01 \
+  --adv-lambda 0.05 \
+  --invariance-lambda 0.001 \
+  --recon-lambda 0.15 \
+  --adv-ramp-epochs 15 \
+  --confounder-column env_histology \
+  --environment-column env_sex \
+  --run-calibration \
+  --run-subgroup-sensitivity \
+  --seed 2026
+```
+
+#### Architecture Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--latent-dim` | 48 | Latent bottleneck dimension |
+| `--hidden-dims` | 256 96 | Encoder hidden layer sizes (outer to inner) |
+| `--sparsity-type` | l1 | Gate regularisation type (`l1` or `hard-concrete`) |
+| `--dropout` | 0.1 | Dropout probability in encoder hidden layers |
+| `--use-decoder` / `--no-decoder` | on | Enable/disable reconstruction decoder |
+
+#### Training Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--n-epochs` | 150 | Maximum training epochs per fold |
+| `--batch-size` | 64 | Mini-batch size |
+| `--lr` | 1e-3 | AdamW learning rate |
+| `--weight-decay` | 1e-4 | AdamW weight decay |
+| `--patience` | 15 | Early-stopping patience (validation AUROC) |
+| `--adv-ramp-epochs` | 5 | Linearly ramp adversarial weight from 0 over N epochs |
+| `--grad-clip-norm` | 5.0 | Global L2 gradient-norm clip per batch (≤ 0 disables) |
+
+#### Loss Weight Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--sparsity-lambda` | 1e-3 | Sparsity penalty weight |
+| `--adv-lambda` | 0.5 | Adversarial confounder loss weight |
+| `--invariance-lambda` | 0.1 | Environment invariance penalty weight |
+| `--recon-lambda` | 0.1 | Reconstruction loss weight |
+
+#### Additional Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--confounder-column` | env_histology | Adversary target column |
+| `--environment-column` | env_sex | Invariance penalty strata column |
+| `--environments` | smoking sex histology country stage | Subgroup columns |
+| `--decision-threshold` | 0.5 | Binary prediction threshold |
+| `--bootstrap-ci-n` | 500 | Bootstrap resamples for CIs |
+| `--run-calibration` | off | Compute probability calibration |
+| `--run-subgroup-sensitivity` | off | Report per-environment metrics |
+| `--save-latent-embeddings` | on | Save per-sample latent coordinates |
+| `--attribution-sample-cap-per-class` | 100 | Cap samples/class for attribution |
+
+#### Composite Loss Function
+
+$$\mathcal{L} = \mathcal{L}_{\text{clf}} + \lambda_s \|\mathbf{g}\|_1 + \lambda_a \mathcal{L}_{\text{adv}} + \lambda_i \frac{1}{K}\sum_{k=1}^{K}\|\boldsymbol{\mu}_k - \boldsymbol{\mu}\|^2 + \lambda_r \mathcal{L}_{\text{recon}}$$
+
+where $\mathbf{g}$ is the gate vector, $\boldsymbol{\mu}_k$ is the
+per-environment latent mean, and the adversarial loss gradient is reversed
+via a gradient reversal layer.
+
+#### Outputs
+
+| File | Description |
+|------|-------------|
+| `deep_oof_predictions.csv` | Per-sample tumour probability (OOF, all folds) |
+| `deep_train_predictions.csv` | Train-fold tumour probabilities for diagnostic train ROC curves |
+| `gate_weights.csv` | Learned sparse gate weights per gene/fold |
+| `latent_embeddings.csv` | Per-sample latent vectors |
+| `deep_per_fold_metrics.csv` | Per-fold AUROC/AUPRC/BAC/Brier |
+| `deep_summary_metrics.csv` | Overall-OOF and mean-of-folds with 95% CIs |
+| `deep_subgroup_metrics.csv` | Per-environment subgroup metrics (if enabled) |
+| `deep_calibration.csv` | Reliability diagram data (if enabled) |
+| `deep_training_history.csv` | Per-fold, per-epoch training/validation loss |
+| `checkpoints/` | Trained model weights per fold (`.npz`) |
+| `phase2_summary.json` | Configuration, metrics, and figure manifest |
+| `figures/` | Latent PCA, gate-weight distributions, ROC/PR curves |
+
+---
+
+### Step 5 — CDPS Ranking (Phase III)
+
+**Purpose**: Integrate deep-model signals into the **Candidate Driver
+Priority Score (CDPS)** — a composite ranking that captures attribution
+strength, gate selection, cross-fold stability, environment invariance,
+and in-silico perturbation sensitivity.
+
+**Module**: `cage.step5_cdps_ranking`
+
+#### Run Command
+
+```bash
+python -m cage.step5_cdps_ranking \
+  --step2-dir outputs/step2_cohort \
+  --step4-dir outputs/step4_deep_model \
+  --output-dir outputs/step5_cdps \
+  --attribution-method integrated-gradients \
+  --ig-steps 50 \
+  --stability-top-frac 0.05 \
+  --w-attribution 0.30 --w-gate 0.20 --w-stability 0.20 \
+  --w-invariance 0.15 --w-perturbation 0.15 \
+  --top-ks 25 \
+  --run-perturbation \
+  --seed 2026
+```
+
+#### CDPS Component Weights
+
+$$\text{CDPS} = 0.30 \times \text{attribution} + 0.20 \times \text{gate} + 0.20 \times \text{stability} + 0.15 \times \text{invariance} + 0.15 \times \text{perturbation}$$
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--w-attribution` | 0.30 | Attribution score weight |
+| `--w-gate` | 0.20 | Gate weight magnitude |
+| `--w-stability` | 0.20 | Cross-fold selection frequency |
+| `--w-invariance` | 0.15 | Cross-environment consistency |
+| `--w-perturbation` | 0.15 | In-silico perturbation sensitivity |
+
+#### Attribution Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--attribution-method` | integrated-gradients | Attribution algorithm (`integrated-gradients`, `grad-x-input`, `gate-weight`) |
+| `--attribution-sample-cap-per-class` | 100 | Cap samples/class for attribution computation |
+| `--ig-steps` | 50 | Trapezoidal steps for Integrated Gradients |
+| `--stability-top-frac` | 0.05 | Top fraction of genes counted per fold for stability |
+| `--normalization` | minmax | Per-component normalization (`minmax` or `rank`) |
+
+#### Perturbation Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--run-perturbation` | on | Enable tumour ↔ normal expression perturbation |
+| `--no-perturbation` | — | Skip perturbation; zero the perturbation component |
+
+#### Outputs
+
+| File | Description |
+|------|-------------|
+| `ranked_genes_cdps.csv` | Full genome-wide CDPS ranking |
+| `top25_genes_cdps.csv` | Top 25 CDPS genes (main-text table) |
+| `top100_genes_cdps.csv` | Top 100 CDPS genes (supplementary) |
+| `gene_attribution_scores.csv` | Attribution component per gene |
+| `gene_stability_scores.csv` | Stability component per gene |
+| `gene_invariance_scores.csv` | Invariance component per gene |
+| `gene_perturbation_scores.csv` | Perturbation component per gene |
+| `figures/` | Stability heatmap, attribution vs perturbation scatter, CDPS barplots |
+
+---
+
+### Step 6 — Biological Validation (Phase IV)
+
+**Purpose**: Validate CDPS-ranked genes through orthogonal biological and
+statistical evidence: differential expression, pathway enrichment, PPI
+network support, clinicopathologic association, survival analysis, and
+subgroup robustness. Produces a final weighted validation-augmented ranking.
+
+**Module**: `cage.step6_biological_validation`
+
+#### Run Command
+
+```bash
+python -m cage.step6_biological_validation \
+  --step2-dir outputs/step2_cohort \
+  --step5-dir outputs/step5_cdps \
+  --output-dir outputs/step6_validation \
+  --run-enrichment \
+  --run-network \
+  --run-survival \
+  --run-subgroup-sensitivity \
+  --gmt-hallmark  data/h.all.v2026.1.Hs.symbols.gmt \
+  --gmt-reactome  data/c2.cp.reactome.v2026.1.Hs.symbols.gmt \
+  --gmt-kegg-go   data/c2.cp.kegg_medicus.v2026.1.Hs.symbols.gmt \
+  --gmt-immune    data/c7.immunesigdb.v2026.1.Hs.symbols.gmt \
+  --ppi-edge-list data/ppi_edges.tsv \
+  --fdr-threshold 0.05 \
+  --lfc-threshold 1.0 \
+  --seed 2026
+```
+
+#### Differential Expression Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--de-method` | welch | DE test method (`welch`, `ranksum`, `nb`) |
+| `--fdr-threshold` | 0.05 | Benjamini–Hochberg FDR threshold |
+| `--lfc-threshold` | 1.0 | Absolute log₂ fold-change threshold |
+| `--min-count` | 10 | Minimum count for DE gene filter |
+| `--min-samples-per-gene` | 10 | Minimum samples at `--min-count` |
+
+#### Optional Analyses
+
+| Flag | Description |
+|------|-------------|
+| `--run-enrichment` | Hallmark / Reactome / KEGG-GO / ImmuneSigDB enrichment on top genes |
+| `--run-network` | PPI network-level support (requires `--ppi-edge-list`) |
+| `--run-survival` | Univariate survival analysis on tumour cohort |
+| `--run-subgroup-sensitivity` | Per-environment tumour-vs-normal consistency |
+
+#### Enrichment Inputs
+
+| Flag | Description |
+|------|-------------|
+| `--gmt-hallmark` | MSigDB Hallmark `.gmt` file |
+| `--gmt-reactome` | Reactome `.gmt` file |
+| `--gmt-kegg-go` | KEGG Medicus `.gmt` file |
+| `--gmt-immune` | MSigDB C7 ImmuneSigDB `.gmt` file (immunologic signatures) |
+| `--top-k-for-enrichment` | Top-K CDPS genes for enrichment foreground (default: 25) |
+| `--top-k-for-clinical` | Top-K CDPS genes for clinical/survival (default: 25) |
+
+#### Final Validation Score Weights
+
+$$\text{Validation} = 0.35 \times \text{DE} + 0.20 \times \text{enrichment} + 0.15 \times \text{network} + 0.15 \times \text{clinical} + 0.10 \times \text{subgroup} + 0.05 \times \text{external}$$
+
+| Flag | Default | Component |
+|------|---------|-----------|
+| `--w-de` | 0.35 | Differential expression |
+| `--w-enrichment` | 0.20 | Pathway enrichment |
+| `--w-network` | 0.15 | PPI network support |
+| `--w-clinical` | 0.15 | Clinical association |
+| `--w-subgroup` | 0.10 | Subgroup robustness |
+| `--w-external` | 0.05 | External validation |
+
+#### Outputs
+
+| File | Description |
+|------|-------------|
+| `differential_expression_results.csv` | Gene-wise DE statistics (mean, lfc, p, FDR) |
+| `differential_expression_top_hits.csv` | DE filtered by FDR and effect-size |
+| `top_cdps_de_support.csv` | CDPS × DE merge for top genes |
+| `enrichment_results_hallmark.csv` | Hallmark enrichment results |
+| `enrichment_results_reactome.csv` | Reactome enrichment results |
+| `enrichment_results_kegg_go.csv` | KEGG/GO enrichment results |
+| `enrichment_summary_top_pathways.csv` | Top pathways across all sources |
+| `top_gene_pathway_membership.csv` | Gene → pathway membership |
+| `network_gene_support.csv` | PPI degree, centrality, component membership |
+| `network_edges_top_genes.csv` | Induced subnetwork edges |
+| `clinical_association_results.csv` | Stage, histology, residual-disease association |
+| `survival_gene_summary.csv` | Log-rank survival analysis per gene |
+| `subgroup_sensitivity_summary.csv` | Per-environment robustness |
+| `final_validated_gene_ranking.csv` | Integrated ranking (CDPS + validation) |
+| `phase4_summary.json` | Configuration and component overview |
+| `figures/` | Volcano, CDPS vs lfc scatter, enrichment dot plot, network subgraph, clinical bars |
+
+---
+
+### Step 6b — Top-25 Final Evidence Prioritization (Post-Analysis)
+
+**Purpose**: Takes the top-25 CDPS genes and produces an integrated,
+evidence-weighted priority ranking by combining six independent evidence
+streams: CDPS/model scores, external replication concordance, differential
+expression, clinico-pathologic and survival association, pathway/network
+support, and subgroup robustness. Genes are assigned to evidence tiers
+(Tier 1 / 2 / 3) and a manuscript-ready table is produced alongside eight
+publication-grade figures.
+
+**Module**: `cage.step6b_top25_final_prioritization`
+
+**Position in pipeline**: Optional post-analysis step run after Step 6
+(and ideally after Step 8 so external concordance rates are available).
+Step 6b outputs are not required by Step 7 but can be copied into the
+final manuscript package manually.
+
+#### Run Command
+
+```bash
+python -m cage.step6b_top25_final_prioritization \
+  --step5-dir outputs/step5_cdps \
+  --step6-dir outputs/step6_validation \
+  --external-dir outputs/step8_geo_validation \
+  --agilent-dir outputs/step8_agilent_validation \
+  --output-dir outputs/step6b_top25_prioritization \
+  --top-k 25 --seed 2026 \
+  --figure-format svg --extra-figure-format pdf \
+  --font-family "Times New Roman" --font-size 10 --palette nature \
+  --w-cdps 0.30 --w-external 0.20 --w-de 0.15 \
+  --w-clinical-survival 0.15 --w-pathway-network 0.10 --w-subgroup 0.10 \
+  --tier1-threshold 0.75 --tier2-threshold 0.50
+```
+
+All `--external-dir` and `--agilent-dir` inputs are optional. When omitted,
+the external replication component is marked as missing and the remaining
+weights are proportionally re-normalised per gene.
+
+#### Evidence Scoring
+
+Six components are min-max normalised to [0, 1] and combined as a weighted
+sum. When a component is missing for a gene its weight is redistributed
+proportionally across the available components so every gene's final score
+sums to a comparable [0, 1] scale.
+
+$$\text{Priority} = \sum_{c \in \text{available}} \frac{w_c}{\sum_{c'} w_{c'}} \cdot \text{norm}(s_c)$$
+
+| Flag | Default | Evidence Component |
+|------|---------|-------------------|
+| `--w-cdps` | 0.30 | CDPS / model score (attribution, gate, stability, invariance, perturbation) |
+| `--w-external` | 0.20 | External replication concordance rate across GEO / Agilent cohorts |
+| `--w-de` | 0.15 | Absolute effect size (tumor vs normal differential expression) |
+| `--w-clinical-survival` | 0.15 | Clinico-pathologic association score or 1 − log-rank p-value |
+| `--w-pathway-network` | 0.10 | Pathway membership count and PPI network centrality |
+| `--w-subgroup` | 0.10 | Subgroup direction agreement fraction across environment strata |
+
+#### Tier Classification
+
+| Tier | Criterion |
+|------|-----------|
+| **Tier 1** | `final_priority_score` ≥ `--tier1-threshold` (default 0.75) AND evidence available from ≥ 3 independent components |
+| **Tier 2** | `final_priority_score` ≥ `--tier2-threshold` (default 0.50) |
+| **Tier 3** | `final_priority_score` < `--tier2-threshold`, or score unavailable |
+
+#### Phase-Specific Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--step5-dir` | `outputs/step5_cdps` | Step 5 CDPS output directory |
+| `--step6-dir` | `outputs/step6_validation` | Step 6 validation output directory |
+| `--external-dir` | — | Step 8 GEO validation outputs (optional) |
+| `--agilent-dir` | — | Step 8 Agilent validation outputs (optional) |
+| `--top-k` | 25 | Number of top CDPS genes to prioritize |
+| `--tier1-threshold` | 0.75 | Score threshold for Tier 1 |
+| `--tier2-threshold` | 0.50 | Score threshold for Tier 2 |
+
+#### Outputs
+
+```
+outputs/step6b_top25_prioritization/
+├── tables/
+│   ├── top25_integrated_evidence.csv     # all evidence columns per gene
+│   ├── top25_final_priority_ranking.csv  # ranked by final_priority_score
+│   ├── top25_tier_summary.csv            # tier counts, gene lists, mean scores
+│   ├── top25_missing_evidence_report.csv # per-gene missing component flags
+│   └── top25_manuscript_table.csv        # clean manuscript-ready table
+├── figures/
+│   ├── top25_final_score_waterfall.svg
+│   ├── top25_evidence_component_heatmap.svg
+│   ├── top25_tiered_ranking_barplot.svg
+│   ├── top25_external_concordance_heatmap.svg
+│   ├── top25_de_vs_cdps_scatter.svg
+│   ├── top25_clinical_survival_summary.svg
+│   ├── top25_network_pathway_support.svg
+│   └── top25_missing_evidence_map.svg
+├── reports/
+│   ├── top25_prioritization_summary.md   # tier distribution + score summary
+│   ├── top25_methods_text.md             # Methods section draft
+│   └── top25_results_text.md             # Results section draft with ranked table
+├── manifests/
+│   ├── input_file_manifest.csv
+│   ├── output_manifest.csv
+│   ├── figure_manifest.csv
+│   ├── scoring_config.json               # weights, thresholds, normalization method
+│   └── reproducibility.json             # timestamp, seed, script SHA-256, NumPy version
+└── logs/
+    └── step6b_top25_final_prioritization.log
+```
+
+#### Integrated Evidence Columns (in `top25_integrated_evidence.csv`)
+
+`gene` · `original_cdps_rank` · `cdps_score` · `attribution_score` · `gate_score` ·
+`stability_score` · `invariance_score` · `perturbation_score` · `log2FC` ·
+`DE_pvalue` · `DE_FDR` · `DE_direction` · `pathway_support_score` · `pathway_names` ·
+`network_degree` · `network_centrality` · `clinical_support_score` ·
+`strongest_clinical_variable` · `clinical_p_value` · `survival_p_value` ·
+`hazard_direction` · `subgroup_robustness_score` · `external_concordance_rate` ·
+`n_external_cohorts_tested` · `n_external_cohorts_concordant` ·
+`final_priority_score` · `evidence_tier` · `missing_evidence_flags`
+
+#### Interpretation
+
+All genes are described as **computationally prioritized candidates** requiring
+experimental confirmation. Tier 1 designation reflects convergent computational
+support across multiple independent evidence streams — it does not imply
+experimental validation or causal involvement in ESCA.
+
+---
+
+### Step 6b (Survival) — Survival Analysis & External Cohort Validation
+
+**Purpose**: Performs Kaplan–Meier survival analysis for each of the top-25
+CDPS-prioritised genes, generates TCGA tumour vs adjacent normal expression
+boxplots, validates expression directionality in four independent GEO cohorts
+(GSE53624, GSE53625, GSE161533, GSE38129), and produces a master evidence table.
+
+All figures use **Times New Roman bold** typography and are output as SVG (primary)
+and PDF. Both **individual** figures and **combined 5 × 5 publication panels** are
+generated to meet Nature Communication submission standards.
+
+**Module**: `cage.step6b_survival_external_validation`
+
+#### Run Command
+
+```bash
+python -m cage.step6b_survival_external_validation \
+  --expression-matrix outputs/step2_cohort/normalized_primary_matrix.csv \
+  --metadata          outputs/step2_cohort/master_samples_primary.csv \
+  --top25-ranking     outputs/step6b_top25_prioritization/tables/top25_final_priority_ranking.csv \
+  --agilent-replication outputs/step8_agilent_validation/combined_de_replication.csv \
+  --geo-replication   outputs/step8_geo_validation/combined_de_replication.csv \
+  --geo-prepared-dir  outputs/step8_geo_prepared \
+  --output-dir        outputs/step6b_survival_external
+```
+
+All inputs are optional — the module degrades gracefully when individual files
+are absent.
+
+#### Methods
+
+**Survival**: TCGA-ESCA primary tumour samples (n=184) are dichotomised at the
+per-gene median expression into high- and low-expression groups. Kaplan–Meier
+curves are estimated with the product-limit method; statistical significance is
+assessed by the log-rank (Mantel–Cox) test (pure NumPy, no external dependency).
+
+**External validation**: Direction concordance between TCGA and each GEO cohort
+is read from Step 8 pre-computed DE replication tables. For each dataset, raw
+expression matrices are loaded to produce per-gene boxplots.
+
+#### Outputs
+
+```
+outputs/step6b_survival_external/
+├── figures/
+│   ├── km/
+│   │   ├── <gene>_KM_curve.svg         # individual Kaplan-Meier (× 22 genes with data)
+│   │   └── combined_KM_all25.svg       # 5 × 5 combined panel (publication figure)
+│   ├── boxplots/
+│   │   ├── <gene>_TCGA_tumor_vs_normal.svg  # individual TCGA boxplot (× 25)
+│   │   └── combined_TCGA_boxplots_all25.svg # 5 × 5 combined panel (publication figure)
+│   ├── external/
+│   │   ├── <GSE>_<gene>_boxplot.svg    # individual gene × dataset boxplot
+│   │   └── <GSE>_all25_boxplots.svg    # per-dataset 5 × 5 panel (× 4 datasets)
+│   ├── top25_external_concordance_heatmap.svg
+│   └── top25_survival_summary_plot.svg
+├── tables/
+│   ├── top25_survival_summary.csv      # gene | median_cutoff | n_high | n_low | logrank_p | hazard_direction
+│   ├── top25_external_validation.csv   # gene | dataset | effect | direction | concordant
+│   └── top25_full_validation_summary.csv  # master table merging all evidence
+├── reports/
+│   ├── survival_methods.md
+│   └── external_validation_summary.md
+├── reproducibility.json
+└── manifest.csv
+```
+
+#### Phase-Specific Options
+
+| Flag | Description |
+|------|-------------|
+| `--expression-matrix` | Normalised expression matrix (samples × genes) |
+| `--metadata` | Sample metadata with `vital_status`, `days_to_death`, `days_to_last_follow_up` |
+| `--top25-ranking` | `top25_final_priority_ranking.csv` from Step 6b prioritization |
+| `--agilent-replication` | `combined_de_replication.csv` from Step 8 Agilent validation |
+| `--geo-replication` | `combined_de_replication.csv` from Step 8 GEO validation |
+| `--geo-prepared-dir` | Root directory containing `<GSE>/processed/expression_gene_matrix.csv` |
+
+---
+
+### Step 7 — Manuscript Packaging (Phase V)
+
+**Purpose**: Aggregate outputs from all prior phases into a reproducible,
+publication-ready package: 8 main figures, 4 main tables, 6 supplementary
+tables, structured Markdown manuscripts, and reproducibility manifests.
+
+**Module**: `cage.step7_manuscript_packaging`
+
+#### Run Command
+
+```bash
+python -m cage.step7_manuscript_packaging \
+  --step2-dir outputs/step2_cohort \
+  --step3-dir outputs/step3_baselines \
+  --step4-dir outputs/step4_deep_model \
+  --step5-dir outputs/step5_cdps \
+  --step6-dir outputs/step6_validation \
+  --output-dir outputs/final_package \
+  --export-markdown \
+  --export-html \
+  --export-docx-ready \
+  --export-latex-ready \
+  --copy-final-figures \
+  --copy-key-tables \
+  --build-supplement \
+  --build-reviewer-bundle \
+  --seed 2026
+```
+
+#### Export Options
+
+| Flag | Description |
+|------|-------------|
+| `--export-markdown` | Emit `manuscript_report.md`, `manuscript_methods.md`, `manuscript_results_summary.md` |
+| `--export-html` | Render Markdown drafts to HTML |
+| `--export-docx-ready` | Produce Markdown tuned for Pandoc → DOCX conversion |
+| `--export-latex-ready` | Produce LaTeX-ready figure/table stubs |
+| `--copy-final-figures` | Copy Figures 1–8 SVGs into `final_figures/` |
+| `--copy-key-tables` | Copy Tables 1–4 CSVs into `final_tables/` |
+| `--build-supplement` | Assemble supplementary bundle (Tables S1–S6 + figures) |
+| `--build-reviewer-bundle` | Build reviewer-friendly zipped bundle |
+
+#### Manuscript Figures
+
+| Figure | Content |
+|--------|---------|
+| Figure 1 | Study overview — data sources, cohort flow, pipeline schematic |
+| Figure 2 | Cohort characteristics — tumour/normal counts, subgroup distributions |
+| Figure 3 | Latent space — PCA of embeddings by tumour/histology/smoking |
+| Figure 4 | Model performance — ROC/PR, calibration, baseline comparison |
+| Figure 5 | Gene ranking — top genes, CDPS component decomposition |
+| Figure 6 | Biological validation — DE volcano, enrichment, network, clinical |
+| Figure 7 | Counterfactual perturbation — predicted disease probability changes |
+| Figure 8 | External validation (if external data provided) |
+
+#### Manuscript Tables
+
+| Table | Content |
+|-------|---------|
+| Table 1 | Cohort summary — sample counts, subgroups, environment coverage |
+| Table 2 | Model comparison — baseline vs deep-model performance |
+| Table 3 | Top-ranked genes — CDPS components for top candidates |
+| Table 4 | Validation-augmented genes — DE, enrichment, network, clinical |
+| Table S1 | Full CDPS-ranked gene list |
+| Table S2 | Differential expression results |
+| Table S3 | Pathway enrichment results |
+| Table S4 | Clinical associations |
+| Table S5 | Model hyperparameters |
+| Table S6 | Fold-level metrics |
+
+#### Outputs
+
+| File | Description |
+|------|-------------|
+| `final_figures/` | Figures 1–8 in SVG (and optional PDF/PNG) |
+| `final_tables/` | Tables 1–4 + Supplementary Tables S1–S6 |
+| `manuscript/` | `manuscript_report.md`, `manuscript_methods.md`, `manuscript_results_summary.md` |
+| `supplementary/` | `supplementary_materials.md` + supporting figures and tables |
+| `manifests/` | `study_summary.json`, `output_manifest.csv`, `figure_manifest.csv`, `table_manifest.csv` |
+
+---
+
+### Step 8 — External Validation and Release
+
+**Purpose**: Evaluate the trained model and top CDPS genes on an optional
+external ESCA cohort, and assemble a release-grade directory tree for
+publication and review.
+
+**Module**: `cage.step8_external_validation_and_release`
+
+#### Run Command (with external cohort)
+
+```bash
+python -m cage.step8_external_validation_and_release \
+  --step2-dir outputs/step2_cohort \
+  --step4-dir outputs/step4_deep_model \
+  --step5-dir outputs/step5_cdps \
+  --step6-dir outputs/step6_validation \
+  --step7-dir outputs/final_package \
+  --external-counts data/external/counts.csv \
+  --external-normalized data/external/vst.csv \
+  --external-metadata data/external/metadata.csv \
+  --external-label-column sample_type \
+  --output-dir outputs/step8_release \
+  --release-bundle-dir outputs/release_bundle \
+  --copy-final-figures --copy-key-tables \
+  --build-supplement --build-reviewer-bundle \
+  --seed 2026
+```
+
+#### Run Command (release bundle only, no external data)
+
+```bash
+python -m cage.step8_external_validation_and_release \
+  --step5-dir outputs/step5_cdps \
+  --step6-dir outputs/step6_validation \
+  --step7-dir outputs/final_package \
+  --output-dir outputs/step8_release \
+  --release-bundle-dir outputs/release_bundle \
+  --copy-final-figures --copy-key-tables --build-supplement
+```
+
+#### External Cohort Options
+
+| Flag | Description |
+|------|-------------|
+| `--external-counts` | External cohort raw counts CSV |
+| `--external-normalized` | External cohort VST-normalised expression CSV |
+| `--external-metadata` | External cohort metadata CSV (must include tumour/normal labels) |
+| `--external-label-column` | Metadata column with labels (default: `sample_type`) |
+
+#### Release Bundle Options
+
+| Flag | Description |
+|------|-------------|
+| `--release-bundle-dir` | Target directory for the release bundle |
+| `--copy-final-figures` | Include final figures in the bundle |
+| `--copy-key-tables` | Include main tables in the bundle |
+| `--build-supplement` | Include supplementary materials |
+| `--build-reviewer-bundle` | Build a reviewer-friendly subset with diffs and logs |
+
+#### Outputs
+
+| File | Description |
+|------|-------------|
+| `external_predictions.csv` | Per-sample tumour probability on external cohort |
+| `external_summary_metrics.csv` | AUROC/AUPRC/calibration on external cohort |
+| `external_top_gene_replication.csv` | DE direction concordance for top CDPS genes |
+| `release_bundle/` | `final_figures/`, `final_tables/`, `manuscript/`, `supplementary/`, `configs/`, `manifests/` |
+| `reviewer_bundle/` | Curated reviewer view (if enabled) |
+| `CLAIM_BOUNDARIES.md` | Explicit claim-boundary statement |
+
+---
+
+---
+
+## GEO External Validation (Step 8 Subcommands)
+
+CAGE integrates all GEO external validation under the Step 8 unified CLI.
+The three sub-steps (download, Affymetrix validation, Agilent validation) are
+accessible as subcommands of `step8_external_validation_and_release`:
+
+```
+python -m cage.step8_external_validation_and_release <subcommand> [options]
+```
+
+| Subcommand | Module | Purpose |
+|------------|--------|---------|
+| `prepare-geo` | `cage.step8_prepare_geo` | Download SOFT.gz + extract expression matrices |
+| `validate-geo` | `cage.step8_geo_validation` | Affymetrix 4-cohort DE replication |
+| `validate-agilent` | `cage.step8_agilent_validation` | Agilent GPL18109 validation |
+| `release` | `cage.step8_runner` | Assemble release bundle |
+| `all` | — | Run all four sub-steps in sequence |
+
+> **Backward compatibility**: The old standalone scripts (`prepare_geo_external_validation.py`,
+> `run_geo_external_validation.py`, `run_agilent_geo_validation.py`) now print a deprecation
+> warning and delegate to the package modules. They continue to work but should not be used
+> in new workflows.
+
+### Validated Cohorts
+
+| Accession | Platform | Tumor | Normal | Subcommand |
+|-----------|----------|-------|--------|------------|
+| GSE23400  | HG-U133A (Affymetrix) | 104 | 104 | `validate-geo` |
+| GSE38129  | HG-U133A 2.0 (Affymetrix) | 30 | 30 | `validate-geo` |
+| GSE161533 | HG-U133 Plus 2.0 (Affymetrix) | 56 | 28 | `validate-geo` |
+| GSE20347  | HG-U133A 2.0 (Affymetrix) | 17 | 17 | `validate-geo` |
+| GSE53624  | Agilent-038314 lncRNA+mRNA | 119 | 119 | `validate-agilent` |
+| GSE53625  | Agilent-038314 lncRNA+mRNA | 179 | 179 | `validate-agilent` |
+
+**Excluded** — GSE67269 (miRNA platform), GSE75241 (tumor-only).
+
+---
+
+### Step 8a — Download and Prepare GEO Datasets (`prepare-geo`)
+
+Downloads SOFT.gz files from NCBI with automatic retry/resume, extracts probe
+and gene expression matrices, infers tumor/normal labels from metadata, and maps
+probes to gene symbols using platform annotation.
+
+**Requirements**: run from the miniconda environment (needs `GEOparse`, `pandas`,
+`requests`). Not available in the pipeline's pure-NumPy (PyMOL Python) environment.
+
+```bash
+python -m cage.step8_external_validation_and_release prepare-geo \
+  --gse GSE53625 GSE53624 GSE23400 GSE38129 GSE161533 GSE20347 \
+  --output-dir outputs/step8_geo_prepared \
+  --max-retries 5 \
+  --retry-delay 10 \
+  --log-level INFO
+```
+
+**Key options**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--gse` | (required) | One or more GEO accessions to download |
+| `--output-dir` | (required) | Root output directory |
+| `--max-retries` | 5 | Download retry attempts per file |
+| `--retry-delay` | 10.0 | Base seconds between retries (exponential back-off) |
+| `--continue-on-error` | on | Skip failed accessions instead of aborting |
+| `--log-level` | INFO | Logging verbosity (DEBUG for verbose) |
+
+Downloads resume automatically via `Range: bytes=N-` headers.
+
+**Outputs** (`outputs/step8_geo_prepared/<GSE>/`)
+
+```
+raw/<GSE>_family.soft.gz
+processed/expression_gene_matrix.csv
+metadata/sample_metadata_inferred.csv
+external_validation_manifest.csv      # cross-dataset summary
+```
+
+---
+
+### Step 8b — Affymetrix Validation (`validate-geo`)
+
+Processes the four Affymetrix ESCC cohorts. Runs DE direction concordance and
+optional classifier transfer in one pass.
+
+**Requirements**: PyMOL Python / any Python 3.10+ with NumPy. The `cage`
+package must be importable for `--run-model`.
+
+```bash
+python -m cage.step8_external_validation_and_release validate-geo \
+  --geo-dir   outputs/step8_geo_prepared \
+  --step5-dir outputs/step5_cdps \
+  --step6-dir outputs/step6_validation \
+  --step4-dir outputs/step4_deep_model \
+  --output-dir outputs/step8_geo_validation \
+  --top-k 100 \
+  --run-model \
+  --log-level INFO
+```
+
+**Key options**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--geo-dir` | (required) | Root GEO directory from `prepare-geo` |
+| `--step5-dir` | (required) | Step 5 CDPS outputs (gene ranking) |
+| `--step6-dir` | (required) | Step 6 outputs (reference DE directions) |
+| `--step4-dir` | — | Step 4 outputs (checkpoints for `--run-model`) |
+| `--output-dir` | (required) | Where to write all validation outputs |
+| `--top-k` | 100 | Top K CDPS genes to test for DE concordance |
+| `--run-model` | off | Run trained classifier on each cohort (AUROC) |
+| `--skip` | — | Extra accessions to exclude |
+| `--seed` | 2026 | RNG seed for ensemble model inference |
+
+**Outputs** (`outputs/step8_geo_validation/`)
+
+| File | Description |
+|------|-------------|
+| `per_dataset/<GSE>/de_replication.csv` | Gene-level concordance for that cohort |
+| `per_dataset/<GSE>/model_metrics.json` | AUROC / sensitivity / specificity |
+| `combined_de_replication.csv` | All cohorts stacked |
+| `cross_cohort_concordance_summary.csv` | Per-gene concordance rate across cohorts |
+| `cross_cohort_model_summary.csv` | Classifier metrics table |
+| `geo_validation_summary.json` | Machine-readable run summary |
+| `figures/` | B + C series figures (SVG) |
+
+---
+
+### Step 8c — Agilent Validation (`validate-agilent`)
+
+Handles GSE53624 and GSE53625 (Agilent-038314 GPL18109). Because GPL18109
+has no HGNC gene symbols, resolves probe-to-gene mapping via 60-mer exact
+substring matching against NCBI RefSeq mRNAs (cached after first run).
+
+**Requirements**: Python 3.10+ with NumPy (same as pipeline environment). NCBI
+internet access required on the first run only.
+
+```bash
+python -m cage.step8_external_validation_and_release validate-agilent \
+  --geo-dir   outputs/step8_geo_prepared \
+  --step5-dir outputs/step5_cdps \
+  --step6-dir outputs/step6_validation \
+  --step4-dir outputs/step4_deep_model \
+  --output-dir outputs/step8_agilent_validation \
+  --datasets GSE53624 GSE53625 \
+  --top-k 100 \
+  --run-model \
+  --log-level INFO
+```
+
+**Key options**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--geo-dir` | (required) | Root GEO directory from `prepare-geo` |
+| `--step5-dir` | (required) | Step 5 CDPS outputs |
+| `--step6-dir` | (required) | Step 6 reference DE directions |
+| `--step4-dir` | — | Step 4 checkpoints for `--run-model` |
+| `--output-dir` | (required) | Where to write outputs |
+| `--datasets` | GSE53624 GSE53625 | Accessions to process |
+| `--top-k` | 100 | Top K CDPS genes to test |
+| `--run-model` | off | Run classifier on each cohort |
+| `--collapse` | median | Probe-to-gene aggregation method |
+| `--seed` | 2026 | RNG seed |
+
+**Outputs** (`outputs/step8_agilent_validation/`)
+
+| File | Description |
+|------|-------------|
+| `annotation/probe_gene_map.csv` | feature_id → gene_symbol (60-mer matched) |
+| `annotation/annotation_summary.json` | Genes found / no probes / no RefSeq |
+| `annotation/refseq_cache/` | Cached RefSeq FASTA per gene |
+| `per_dataset/<GSE>/de_replication.csv` | Gene-level concordance table |
+| `combined_de_replication.csv` | Both cohorts stacked |
+| `concordance_summary.csv` | Per-gene concordance rate across both cohorts |
+| `model_summary.csv` | AUROC / sensitivity / specificity table |
+| `analysis_report.txt` | Human-readable narrative report |
+| `validation_summary.json` | Machine-readable summary |
+| `figures/` | A series figures (SVG) |
+
+---
+
+### Running All Sub-Steps at Once
+
+```bash
+python -m cage.step8_external_validation_and_release all \
+  --gse GSE23400 GSE38129 GSE161533 GSE20347 GSE53624 GSE53625 \
+  --step5-dir outputs/step5_cdps \
+  --step6-dir outputs/step6_validation \
+  --step4-dir outputs/step4_deep_model \
+  --step7-dir outputs/final_package \
+  --output-dir outputs/step8 \
+  --run-model \
+  --build-reviewer-bundle \
+  --seed 2026
+```
+
+This writes to `outputs/step8/geo_prepared/`, `outputs/step8/geo_validation/`,
+`outputs/step8/agilent_validation/`, and `outputs/step8/release/` respectively.
+
+---
+
+### Step E — Generate Pipeline Figures (SVG, Steps 2-6)
+
+`generate_pipeline_figures.py` reads every quantitative output from pipeline steps 2–6
+and produces 23 publication-quality SVG figures covering cohort characterisation,
+model training, interpretability, and functional validation.
+
+**Requirements**: Python 3.10+ with matplotlib and NumPy (ChimeraX Python or conda env).
+
+```bash
+python generate_pipeline_figures.py \
+  --step2-dir outputs/step2_cohort \
+  --step3-dir outputs/step3_baselines \
+  --step4-dir outputs/step4_deep_model \
+  --step5-dir outputs/step5_cdps \
+  --step6-dir outputs/step6_validation \
+  --output-dir outputs/figures/pipeline \
+  --verbose
+```
+
+**Outputs** (`outputs/figures/pipeline/`)
+
+| File | Data source | Description |
+|------|------------|-------------|
+| `D/D1_cohort_composition.svg` | master_samples_primary.csv | Tumor/Normal bar + histology donut |
+| `D/D2_clinical_demographics.svg` | master_samples_primary.csv | Age, sex, country, smoking, stage, vital status |
+| `E/E1_model_comparison.svg` | baseline_summary_metrics.csv | AUROC/AUPRC/F1/BAC grouped bars |
+| `E/E2_per_fold_auroc.svg` | baseline_per_fold_metrics.csv | Per-fold AUROC strip plots |
+| `E/E3_calibration_curves.svg` | baseline_calibration.csv | Predicted vs observed probability |
+| `E/E4_feature_importance.svg` | baseline_feature_importance.csv | Top-20 gene importance per model |
+| `E/E5_subgroup_heatmap.svg` | baseline_subgroup_metrics.csv | AUROC × subgroup heatmap |
+| `F/F1_training_curves.svg` | deep_training_history.csv | Validation AUROC + loss components per epoch |
+| `F/F2_per_fold_metrics.svg` | deep_per_fold_metrics.csv | Per-fold AUROC/BAC/F1 strips |
+| `F/F3_calibration_curve.svg` | deep_calibration.csv | Deep model calibration |
+| `F/F4_subgroup_heatmap.svg` | deep_subgroup_metrics.csv | Deep model subgroup AUROC |
+| `F/F5_gate_weights.svg` | gate_weights.csv | Gate distribution + top/bottom 25 genes |
+| `F/F6_latent_pca.svg` | latent_embeddings.csv | PCA of OOF latent space by label/fold |
+| `G/G1_cdps_distribution.svg` | ranked_genes_cdps.csv | CDPS score histogram all genes |
+| `G/G2_top25_components.svg` | top25_genes_cdps.csv | Stacked component bars + overall score |
+| `G/G3_score_scatter_matrix.svg` | ranked_genes_cdps.csv | Component correlation scatter matrix |
+| `H/H1_volcano.svg` | differential_expression_results.csv | Volcano plot, top CDPS genes labelled |
+| `H/H2_clinical_assoc_heatmap.svg` | clinical_association_results.csv | Gene × covariate -log10(p) heatmap |
+| `H/H3_pathway_enrichment.svg` | enrichment_results_hallmark/reactome.csv | Fold-enrichment lollipop chart |
+| `H/H4_survival_summary.svg` | survival_gene_summary.csv | OS association lollipop by hazard direction |
+| `H/H5_subgroup_sensitivity.svg` | subgroup_sensitivity_summary.csv | Subgroup agreement heatmap |
+| `H/H6_final_ranking_waterfall.svg` | final_validated_gene_ranking.csv | Final score waterfall with components |
+| `H/H7_gene_pathway_bubble.svg` | top_gene_pathway_membership.csv | Gene-pathway membership bubble chart |
+
+---
+
+### Step D — Generate Validation Figures (SVG)
+
+`generate_validation_figures.py` reads all CSV/JSON outputs from Steps B and C and
+produces 13 publication-quality SVG figures.  Requires any Python 3.10+ with
+**matplotlib** and NumPy (e.g. the ChimeraX bundled Python, or a conda/venv
+with matplotlib installed; **not** the pipeline's PyMOL Python).
+
+```bash
+python generate_validation_figures.py \
+  --agilent-dir    outputs/agilent_validation \
+  --affymetrix-dir outputs/geo_external_validation \
+  --output-dir     outputs/figures \
+  --verbose
+```
+
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `--agilent-dir` | Root output dir from `run_agilent_geo_validation.py` |
+| `--affymetrix-dir` | Root output dir from `run_geo_external_validation.py` |
+| `--output-dir` | Where to write SVG figures (subdirs created automatically) |
+| `--verbose` | Print path of each saved file |
+
+**Outputs** (`outputs/figures/`)
+
+| File | Description |
+|------|-------------|
+| `agilent/A1_direction_heatmap.svg` | Gene × cohort direction heatmap (Agilent 2 cohorts) |
+| `agilent/A2_concordance_bar.svg` | Per-gene concordance rate bars — Agilent |
+| `agilent/A3_probe_annotation_donut.svg` | Donut: genes with probes / no probe / no RefSeq NM_ |
+| `agilent/A4_classifier_performance.svg` | AUROC / sensitivity / specificity — Agilent |
+| `agilent/A5_effect_size_scatter.svg` | Effect size correlation GSE53624 vs GSE53625 |
+| `agilent/A6_probes_per_gene.svg` | Number of 60-mer probes matched per gene |
+| `affymetrix/B1_direction_heatmap.svg` | Gene × cohort direction heatmap (Affymetrix 4 cohorts) |
+| `affymetrix/B2_concordance_bar.svg` | Per-gene concordance rate bars — Affymetrix |
+| `affymetrix/B3_classifier_performance.svg` | AUROC / sensitivity / specificity — Affymetrix |
+| `affymetrix/B4_concordance_distribution.svg` | Histogram + summary of concordance rate distribution |
+| `combined/C1_all_cohorts_auroc.svg` | AUROC across all 6 cohorts, colour-coded by platform |
+| `combined/C2_cross_platform_concordance_scatter.svg` | Per-gene Affymetrix rate vs Agilent rate |
+| `combined/C3_combined_direction_heatmap.svg` | All 6 cohorts in one heatmap with platform separator |
+
+**Colour scheme** (heatmaps): deep red = concordant UP, light salmon = discordant UP,
+deep blue = concordant DOWN, light blue = discordant DOWN, grey = not testable,
+white = gene not on platform.
+
+---
+
+### Validated Results Summary
+
+Across **6 independent ESCC cohorts** (n = 980 samples):
+
+| Metric | Affymetrix (4 cohorts) | Agilent (2 cohorts) |
+|--------|----------------------|---------------------|
+| Samples | 384 (195T / 189N) | 596 (298T / 298N) |
+| Genes testable | 60–87 / 100 | 89 / 100 |
+| DE concordance (overall) | 76–82% | 75–76% |
+| Genes 100% concordant across all cohorts | 56 | 67 |
+| Classifier AUROC range | 0.39–0.62 | 0.49–0.58 |
+
+Genes concordant across **all** tested cohorts on both platforms include:
+`MMP9`, `BGN`, `COL1A1`, `TP63`, `KRT16`, `KRT17`, `MAGEA3`, `CXCL13`,
+`FAP`, `LGALS4`, `ABCA8`, `MLF1`, `ATP8A1`, `PRRX2`, `FCGR3A`, `NXPH4`,
+`GMDS`, `IFI44L`, `SIX1`, `CLDN10`, `PSCA`, `PTGES`, `AEBP1`, `FAP`,
+`LPIN2`, `CYP24A1`, `HMGN5`, `DNALI1`, `RIMS2`, `GCKR`.
+
+> **Note on classifier domain shift**: The model is trained on TCGA RNA-seq
+> (DESeq2 VST) and applied to microarray log-intensity after per-gene
+> z-scoring.  AUROC values reflect cross-platform generalisability rather
+> than held-out TCGA performance; results should be interpreted as domain
+> transfer benchmarks.
+
+---
+
+## Global CLI Options
+
+All pipeline steps share a unified set of global options:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--input-dir` | (required*) | Directory containing inputs for this step |
+| `--output-dir` | (required) | Directory for outputs (tables, figures, logs) |
+| `--seed` | 2026 | Random seed for full reproducibility |
+| `--n-threads` | ½ CPU count | Worker threads for parallelisable operations |
+| `--overwrite` | off | Regenerate outputs even if they already exist |
+| `--log-level` | INFO | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `--version` | — | Print CAGE version and exit |
+
+*Steps 5–8 accept per-phase `--stepN-dir` flags instead of `--input-dir`.
+
+---
+
+## Figure and Visualization Standards
+
+All figures produced by CAGE adhere to 2026 publication-grade
+standards suitable for Nature Communications and equivalent journals:
+
+| Property | Standard |
+|----------|----------|
+| **Primary format** | SVG |
+| **Additional formats** | PDF, PNG (via `--extra-figure-format`) |
+| **Typography** | Bold Roman/serif only (Times New Roman → Times → STIXGeneral → DejaVu Serif) |
+| **Colour palette** | Nature manuscript-style (10 categorical + 12 semantic colours) |
+| **Accessibility** | Colorblind-friendly where feasible |
+| **Design** | Clean, minimal; no chart junk; balanced whitespace |
+| **Rasterisation** | High-DPI for PDF/PNG exports |
+| **Configuration** | `--font-family`, `--font-size`, `--palette`, `--figure-format` |
+
+#### Figure CLI Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--figure-format` | svg | Primary output format |
+| `--extra-figure-format` | — | Additional formats (repeatable: `--extra-figure-format pdf --extra-figure-format png`) |
+| `--font-family` | Times New Roman | Preferred serif font |
+| `--font-size` | 10 | Base font size in points |
+| `--palette` | nature | Colour palette |
+
+All styling is centralised in `cage/publication_style.py`, ensuring
+consistency across all pipeline phases.
+
+---
+
+## Output Directory Structure
+
+```
+outputs/
+├── step2_cohort/
+│   ├── master_samples_primary.csv
+│   ├── normalized_primary_matrix.csv
+│   ├── counts_primary_matrix.csv
+│   ├── grouped_outer_folds.csv
+│   ├── confounder_encodings.json
+│   ├── phase1_summary.json
+│   └── logs/
+├── step3_baselines/
+│   ├── baseline_oof_predictions.csv
+│   ├── baseline_train_predictions.csv
+│   ├── baseline_per_fold_metrics.csv
+│   ├── baseline_summary_metrics.csv
+│   ├── baseline_feature_importance.csv
+│   ├── baseline_subgroup_metrics.csv
+│   ├── baseline_calibration.csv
+│   ├── phase3_summary.json
+│   └── logs/
+├── step4_deep_model/
+│   ├── deep_oof_predictions.csv
+│   ├── deep_train_predictions.csv
+│   ├── gate_weights.csv
+│   ├── latent_embeddings.csv
+│   ├── deep_per_fold_metrics.csv
+│   ├── deep_summary_metrics.csv
+│   ├── deep_training_history.csv
+│   ├── deep_subgroup_metrics.csv
+│   ├── deep_calibration.csv
+│   ├── phase2_summary.json
+│   ├── checkpoints/
+│   └── logs/
+├── step5_cdps/
+│   ├── ranked_genes_cdps.csv
+│   ├── top25_genes_cdps.csv
+│   ├── top100_genes_cdps.csv
+│   ├── gene_attribution_scores.csv
+│   ├── gene_stability_scores.csv
+│   ├── gene_invariance_scores.csv
+│   ├── gene_perturbation_scores.csv
+│   └── logs/
+├── step6_validation/
+│   ├── differential_expression_results.csv
+│   ├── differential_expression_top_hits.csv
+│   ├── top_cdps_de_support.csv
+│   ├── enrichment_results_*.csv
+│   ├── network_gene_support.csv
+│   ├── clinical_association_results.csv
+│   ├── survival_gene_summary.csv
+│   ├── subgroup_sensitivity_summary.csv
+│   ├── final_validated_gene_ranking.csv
+│   ├── phase4_summary.json
+│   └── logs/
+├── step6b_top25_prioritization/          # optional post-analysis (Step 6b)
+│   ├── tables/
+│   │   ├── top25_integrated_evidence.csv
+│   │   ├── top25_final_priority_ranking.csv
+│   │   ├── top25_tier_summary.csv
+│   │   ├── top25_missing_evidence_report.csv
+│   │   └── top25_manuscript_table.csv
+│   ├── figures/
+│   ├── reports/
+│   ├── manifests/
+│   └── logs/
+├── step6b_survival_external/             # optional (Step 6b survival)
+│   ├── figures/
+│   │   ├── km/                          # individual KM curves + combined_KM_all25.svg
+│   │   ├── boxplots/                    # TCGA boxplots + combined_TCGA_boxplots_all25.svg
+│   │   └── external/                    # per-gene-dataset + <GSE>_all25_boxplots.svg
+│   └── tables/
+│       ├── top25_survival_summary.csv
+│       ├── top25_external_validation.csv
+│       └── top25_full_validation_summary.csv
+├── final_package/
+│   ├── final_figures/
+│   ├── final_tables/
+│   ├── manuscript/
+│   ├── supplementary/
+│   ├── manifests/
+│   └── logs/
+└── release_bundle/
+    ├── final_figures/
+    ├── final_tables/
+    ├── manuscript/
+    ├── supplementary/
+    ├── configs/
+    ├── manifests/
+    └── CLAIM_BOUNDARIES.md
+```
+
+---
+
+## Reproducibility
+
+CAGE is designed for **bit-exact reproducibility**:
+
+- **Deterministic seeds**: All random operations (fold assignment, weight
+  initialisation, bootstrap sampling) are seeded via `--seed` (default: 2026).
+- **Patient-grouped CV**: Outer folds are grouped by patient barcode to
+  prevent data leakage between train and test splits.
+- **Thread-limit propagation**: `--n-threads` sets `OMP_NUM_THREADS`,
+  `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, etc. before NumPy import.
+- **Logging**: Every step logs its configuration, random seeds, filtering
+  thresholds, and preprocessing decisions to both console and a durable
+  `logs/` file.
+- **Phase summary JSONs**: Each step emits a machine-readable summary
+  (`phase1_summary.json`, `phase2_summary.json`, etc.) recording all
+  parameters, sample counts, and output artefacts.
+- **Manifests**: Step 7 produces `output_manifest.csv`, `figure_manifest.csv`,
+  and `table_manifest.csv` documenting every generated artefact.
+
+---
+
+## Claim Boundaries
+
+All outputs consistently frame genes as **"candidate driver genes"** or
+**"computationally prioritised"**. No causal or clinical-validation claims
+are made unless an external cohort has been independently evaluated and
+reported (Step 8). The `CLAIM_BOUNDARIES.md` file in the release bundle
+documents these boundaries explicitly.
+
+---
+
+## Citation
+
+If you use CAGE in your research, please cite:
+
+> [Author names]. CAGE: Causality-Aware Gene Evaluator — prioritizing
+> candidate driver genes in esophageal carcinoma via sparse invariant deep
+> modelling and multi-layer biological validation. *Nature Communications*
+> (2026). [DOI pending]
+
+---
+
+## License
+
+This project is released under the [MIT License](LICENSE).

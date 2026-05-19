@@ -1,0 +1,33 @@
+###############################################################################
+# CIVIC-ESCA  v0.1.0
+# Candidate-driver Invariant Prioritization for TCGA ESCA
+#
+# Conda environment specification — reproduces the exact software stack
+# used throughout all pipeline phases.
+#
+# Usage:
+#   conda env create -f environment.yml
+#   conda activate civic-esca
+###############################################################################
+
+name: civic-esca
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # ── Python runtime ──────────────────────────────────────────────────────
+  - python >=3.10,<3.13
+
+  # ── Core numerical / data stack ─────────────────────────────────────────
+  - numpy >=1.24,<2.0
+
+  # ── Visualization (publication-grade figures) ───────────────────────────
+  - matplotlib >=3.7
+
+  # ── Optional: enhanced enrichment & survival analysis ───────────────────
+  # Uncomment to enable gseapy-based enrichment or lifelines survival tests.
+  # - pip:
+  #   - gseapy >=1.0
+  #   - lifelines >=0.27

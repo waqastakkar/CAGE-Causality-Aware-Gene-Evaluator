@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cage"
+version = "0.1.0"
+description = "Causality-Aware Gene Evaluator"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24,<2.0",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+enrichment = ["gseapy>=1.0"]
+survival = ["lifelines>=0.27"]
+ml = ["scikit-learn>=1.3", "xgboost>=2.0", "lightgbm>=4.0"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1"]
+all = ["gseapy>=1.0", "lifelines>=0.27", "scikit-learn>=1.3", "xgboost>=2.0", "lightgbm>=4.0"]
+
+[project.scripts]
+cage-step2 = "cage.step2_build_cohort:main"
+cage-step3 = "cage.step3_grouped_baselines:main"
+cage-step4 = "cage.step4_sparse_invariant_model:main"
+cage-step5 = "cage.step5_cdps_ranking:main"
+cage-step6 = "cage.step6_biological_validation:main"
+cage-step7 = "cage.step7_manuscript_packaging:main"
+cage-step8 = "cage.step8_external_validation_and_release:main"
+cage-prepare-geo      = "cage.step8_prepare_geo:main"
+cage-validate-geo     = "cage.step8_geo_validation:main"
+cage-validate-agilent = "cage.step8_agilent_validation:main"
+
+[tool.setuptools.packages.find]
+include = ["cage*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]

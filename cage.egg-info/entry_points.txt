@@ -1,0 +1,11 @@
+[console_scripts]
+cage-prepare-geo = cage.step8_prepare_geo:main
+cage-step2 = cage.step2_build_cohort:main
+cage-step3 = cage.step3_grouped_baselines:main
+cage-step4 = cage.step4_sparse_invariant_model:main
+cage-step5 = cage.step5_cdps_ranking:main
+cage-step6 = cage.step6_biological_validation:main
+cage-step7 = cage.step7_manuscript_packaging:main
+cage-step8 = cage.step8_external_validation_and_release:main
+cage-validate-agilent = cage.step8_agilent_validation:main
+cage-validate-geo = cage.step8_geo_validation:main
