@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # CAGE: A Causality-Aware, Reproducible Pipeline for Candidate Driver Gene Prioritization in Heterogeneous Tumor Cohorts
 
 A reproducible, end-to-end computational pipeline for prioritising candidate
@@ -647,3 +648,6 @@ If you use CAGE in your research, please cite:
 ## License
 
 This project is released under the [MIT License](LICENSE).
+=======
+# CAGE-Causality-Aware-Gene-Evaluator
+>>>>>>> 52891f62346918feae2f259a98ac70ddd50ca235
