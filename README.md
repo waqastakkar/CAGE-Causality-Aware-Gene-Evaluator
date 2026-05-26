@@ -686,7 +686,7 @@ bundle states these boundaries explicitly.
 
 If you use CAGE in your research, please cite:
 
-> [Author names]. CAGE: Causality-Aware Gene Evaluator — prioritising candidate
+> [Muahmmad Waqas et al]. CAGE: Causality-Aware Gene Evaluator — prioritising candidate
 > driver genes in esophageal carcinoma via sparse invariant deep modelling and
 > multi-layer biological validation. *Bioinformatics* (2026). [DOI pending]
 
