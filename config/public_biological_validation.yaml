@@ -1,0 +1,7 @@
+validation:
+  enabled: true
+  genes: [FOXS1, ESM1, KIF2C]
+  hpa_file: data/HPA/proteinatlas.tsv
+  cbioportal_study_id: esca_tcga
+  singlecell_dir: data/TISCH2
+  output_dir: outputs/step9_public_biological_validation

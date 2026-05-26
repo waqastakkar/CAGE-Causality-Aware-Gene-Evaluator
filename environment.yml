@@ -22,6 +22,10 @@ dependencies:
 
   # ── Core numerical / data stack ─────────────────────────────────────────
   - numpy >=1.24,<2.0
+  - pandas >=2.0
+  - scipy >=1.10
+  - requests >=2.31
+  - pyyaml >=6.0
 
   # ── Visualization (publication-grade figures) ───────────────────────────
   - matplotlib >=3.7

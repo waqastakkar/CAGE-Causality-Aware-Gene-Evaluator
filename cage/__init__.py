@@ -42,6 +42,8 @@ __all__ = [
     "step8_prepare_geo",
     "step8_geo_validation",
     "step8_agilent_validation",
+    "public_biological_validation",
+    "public_validation_composite",
     "publication_style",
     "cli_args",
     "preprocess_esca",

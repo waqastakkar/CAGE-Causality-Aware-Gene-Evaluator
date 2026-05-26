@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # CAGE: A Causality-Aware, Reproducible Pipeline for Candidate Driver Gene Prioritization in Heterogeneous Tumor Cohorts
 
 A reproducible, end-to-end computational pipeline for prioritising candidate
@@ -59,14 +58,17 @@ first principles in pure NumPy.
 | **CDPS** | Five-component score combining attribution, gate weight, stability, invariance, and in-silico perturbation. |
 | **Biological Validation** | Differential expression, pathway enrichment, PPI network support, clinical association, and subgroup robustness. |
 | **External Validation** | Direction-of-effect replication and classifier transfer across four independent GEO cohorts. |
+| **Public Biological Validation** | Downstream HPA, cBioPortal, immune/TME marker, optional single-cell, and integrated manuscript-oriented validation for final candidates. |
 
 ---
 
 ## Design Philosophy
 
 CAGE is intentionally built on a **pure-NumPy** numerical backend. All gradients
-are derived analytically and every loss term is implemented explicitly. There
-are no dependencies on scikit-learn, PyTorch, TensorFlow, or statsmodels.
+are derived analytically and every loss term is implemented explicitly. The
+core modelling workflow does not depend on scikit-learn, PyTorch, TensorFlow,
+or statsmodels; the downstream public biological validation module uses
+pandas/scipy/requests for public-data analysis and API access.
 This design provides:
 
 - **Bit-exact reproducibility** across platforms and Python versions.
@@ -89,6 +91,7 @@ This design provides:
 |-----------|---------|---------|
 | gseapy    | ≥ 1.0   | GSEA-style pathway enrichment (Step 6) |
 | lifelines | ≥ 0.27  | Cox / log-rank survival analysis (Step 6) |
+| pandas, scipy, requests, PyYAML | latest | Downstream public biological validation |
 | GEOparse, pandas, requests | latest | Downloading GEO SOFT files (Step 8 `prepare-geo` only) |
 
 ---
@@ -353,6 +356,16 @@ python -m cage.step8_external_validation_and_release release \
   --output-dir outputs/step8_release \
   --release-bundle-dir outputs/release_bundle \
   --copy-final-figures --copy-key-tables --build-supplement
+
+# Step 9 - Public biological validation and composite figure
+cage-public-validation \
+  --genes FOXS1 ESM1 KIF2C \
+  --hpa data/HPA/proteinatlas.tsv \
+  --output outputs/step9_public_biological_validation
+
+cage-public-validation-figure \
+  --step9-dir outputs/step9_public_biological_validation \
+  --output-dir outputs/step9_public_biological_validation/composite
 ```
 
 Every module supports `--help`:
@@ -515,6 +528,22 @@ Standalone helper modules (`step8_prepare_geo`, `step8_geo_validation`,
 `step8_agilent_validation`) are also importable, but the unified CLI is the
 recommended entry point.
 
+### `cage.public_biological_validation` - Public biological validation
+
+- **Purpose.** Run downstream public-data validation for final CAGE/CDPS
+  candidates using HPA, cBioPortal TCGA-ESCA, immune/TME marker correlations,
+  optional TISCH2 processed single-cell data, and an integrated validation
+  summary.
+- **Inputs.** Candidate genes, `data/HPA/proteinatlas.tsv`, TCGA-ESCA
+  normalized expression matrix detected from common project locations, and
+  optional TISCH2 processed files under `data/TISCH2/`.
+- **Outputs.** `outputs/step9_public_biological_validation/` with separate
+  `hpa/`, `cbioportal/`, `immune/`, `singlecell/`, `integrated/`, and
+  `composite/` subdirectories.
+- **CLI.** `cage-public-validation` runs the public-data validation tables and
+  panels. `cage-public-validation-figure` assembles the composite manuscript
+  figure from Step 9 outputs.
+
 ### Other modules
 
 | Module | Role |
@@ -525,6 +554,8 @@ recommended entry point.
 | `cage.metrics` | AUROC, AUPRC, balanced accuracy, Brier score, calibration, bootstrap CIs. |
 | `cage.cli_args` | Shared argparse builders for cross-step CLI consistency. |
 | `cage.publication_style` | Centralised Matplotlib styling (fonts, colours, sizes). |
+| `cage.public_biological_validation` | Step 9 public-data biological validation CLI backend. |
+| `cage.public_validation_composite` | Step 9 composite public-validation figure CLI backend. |
 | `cage.step3_runner`, `step4_runner`, `step5_runner`, `step6_runner`, `step7_runner`, `step8_runner` | Convenience wrappers that orchestrate a single step end-to-end. |
 | `cage.step4_ablation`, `step4_hptuner` | Optional ablation studies and hyperparameter sweeps for Step 4. |
 | `cage.step5_robustness` | Robustness / perturbation diagnostics for the CDPS ranking. |
@@ -599,6 +630,11 @@ outputs/
 └── release_bundle/                     # final shareable directory (figures, tables, manuscript, manifests)
 ```
 
+Step 9 public biological validation writes to
+`outputs/step9_public_biological_validation/`, with separate `hpa/`,
+`cbioportal/`, `immune/`, `singlecell/`, `integrated/`, and `composite/`
+subdirectories.
+
 Each step also writes a `logs/` subdirectory and a `phaseN_summary.json`
 machine-readable summary of the configuration and key results.
 
@@ -636,18 +672,26 @@ pytest -q
 
 ---
 
+## Claim Boundaries
+
+All outputs frame genes as **"candidate driver genes"** or
+**"computationally prioritised candidates"**. No causal or clinical-validation
+claims are made unless an independent external cohort has been evaluated and
+reported (Step 8). The `CLAIM_BOUNDARIES.md` file written into the release
+bundle states these boundaries explicitly.
+
+---
+
 ## Citation
 
 If you use CAGE in your research, please cite:
 
-> [Author names]. CAGE: A Causality-Aware, Reproducible Pipeline for Candidate 
-> Driver Gene Prioritization in Heterogeneous Tumor Cohorts. *Bioinformatics* (2026). [DOI pending]
+> [Author names]. CAGE: Causality-Aware Gene Evaluator — prioritising candidate
+> driver genes in esophageal carcinoma via sparse invariant deep modelling and
+> multi-layer biological validation. *Bioinformatics* (2026). [DOI pending]
 
 ---
 
 ## License
 
 This project is released under the [MIT License](LICENSE).
-=======
-# CAGE-Causality-Aware-Gene-Evaluator
->>>>>>> 52891f62346918feae2f259a98ac70ddd50ca235
