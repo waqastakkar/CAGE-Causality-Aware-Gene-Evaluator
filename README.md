@@ -6,6 +6,9 @@ driver genes in heterogeneous tumour cohorts, with **esophageal carcinoma
 cross-validation, a sparse invariant adversarial autoencoder–classifier,
 multi-component gene ranking (Causality-Aware Priority Score, CDPS), and
 orthogonal biological validation across independent cohorts.
+## CAGE Workflow
+
+![CAGE Workflow](workflow.png)
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](#requirements)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
