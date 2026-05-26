@@ -669,17 +669,6 @@ checks, CDPS scoring, and CLI smoke tests:
 ```bash
 pytest -q
 ```
-
----
-
-## Claim Boundaries
-
-All outputs frame genes as **"candidate driver genes"** or
-**"computationally prioritised candidates"**. No causal or clinical-validation
-claims are made unless an independent external cohort has been evaluated and
-reported (Step 8). The `CLAIM_BOUNDARIES.md` file written into the release
-bundle states these boundaries explicitly.
-
 ---
 
 ## Citation
