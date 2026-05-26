@@ -126,21 +126,4 @@ Single-cell CSV and figure outputs are produced only when compatible processed d
 2. cBioPortal validation retrieves molecular profiles, mutations, copy-number alterations, mRNA data, and clinical/sample data from the API when available.
 3. Immune/TME validation calculates Pearson and Spearman correlations between candidate genes and immune, stromal, endothelial, checkpoint, angiogenesis, epithelial, and proliferation markers, with Benjamini-Hochberg FDR correction.
 4. Optional single-cell validation summarizes candidate expression by cell type if processed TISCH2 or compatible single-cell files are present.
-5. Integrated summary combines HPA, cBioPortal, immune/TME, and optional single-cell evidence into manuscript-oriented tables and figures.
-
-## Limitations
-
-- These analyses are public-data validation, not wet-lab validation.
-- cBioPortal availability depends on public API status and the molecular profiles exposed for `esca_tcga`.
-- HPA field names and evidence availability vary across HPA releases; missing fields are logged and do not stop the workflow.
-- Marker-gene correlation is an association analysis and does not prove cell-type abundance or mechanism.
-- Single-cell validation is optional and depends on the user supplying processed TISCH2 or compatible files.
-- Functional validation is still required to establish causal biological mechanisms.
-
-## Manuscript Language
-
-Suggested language:
-
-> Public biological validation was performed for CAGE-prioritized ESCA candidate genes using Human Protein Atlas annotations, cBioPortal TCGA-ESCA genomic profiles, immune/TME marker-gene correlation analysis, and optional processed single-cell data. These analyses provide public protein-level evidence, genomic alteration analysis, immune/TME association, and single-cell cell-type localization where data are available. They do not constitute experimental or wet-lab validation, and the inferred biological roles should be interpreted as associations that require functional validation.
-
-Avoid wording such as "experimentally validated" or "functionally proven" for this module.
+5. Integrated summary combines HPA, cBioPortal, immune/TME, and optional single-cell evidence into tables and figures.
