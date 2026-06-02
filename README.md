@@ -678,9 +678,9 @@ pytest -q
 
 If you use CAGE in your research, please cite:
 
-> [Muahmmad Waqas et al]. CAGE: Causality-Aware Gene Evaluator — prioritising candidate
-> driver genes in esophageal carcinoma via sparse invariant deep modelling and
-> multi-layer biological validation. *Bioinformatics* (2026). [DOI pending]
+> [Muahmmad Waqas et al]. CAGE: A Causality-Aware Transcriptomic Pipeline for 
+> Reproducible Candidate Gene Prioritization in Heterogeneous Tumor Cohorts.
+> *Genomics, Proteomics & Bioinformatics (GPB)* (2026). [DOI pending]
 
 ---
 
