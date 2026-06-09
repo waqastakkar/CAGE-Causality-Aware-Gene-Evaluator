@@ -680,7 +680,7 @@ If you use CAGE in your research, please cite:
 
 > [Muahmmad Waqas et al]. CAGE: A Causality-Aware Transcriptomic Pipeline for 
 > Reproducible Candidate Gene Prioritization in Heterogeneous Tumor Cohorts.
-> *Genomics, Proteomics & Bioinformatics (GPB)* (2026). [DOI pending]
+> *Briefings in Bioinformatics* (2026). [DOI pending]
 
 ---
 
