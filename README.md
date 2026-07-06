@@ -678,9 +678,9 @@ pytest -q
 
 If you use CAGE in your research, please cite:
 
-> [Muahmmad Waqas et al]. CAGE: A Causality-Aware Transcriptomic Pipeline for 
-> Reproducible Candidate Gene Prioritization in Heterogeneous Tumor Cohorts.
-> *Briefings in Bioinformatics* (2026). [DOI pending]
+> [Muahmmad Waqas et al]. CAGE: an interpretable, causality-aware deep-learning 
+> framework for confounder-robust biomarker prioritization from heterogeneous cancer transcriptomes.
+> *Science China Life Sciences* (2026). [DOI pending]
 
 ---
 
